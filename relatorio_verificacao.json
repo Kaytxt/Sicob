@@ -1,0 +1,27 @@
+{
+  "timestamp": "2025-08-27T10:06:57.723147",
+  "estrutura_diretorios": {
+    "img_automacao": true,
+    "img_automacao/botoes": true,
+    "img_automacao/contas": false,
+    "Scripts": true,
+    "venv": true
+  },
+  "arquivos_imagem": {},
+  "scripts": {
+    "baixar_extratos.py": {
+      "existe": true,
+      "tamanho": 5958,
+      "linhas": 159,
+      "erro": null
+    }
+  },
+  "problemas_encontrados": [
+    "Diretório ausente: img_automacao/contas",
+    "Diretório de contas não existe"
+  ],
+  "sugestoes": [
+    "Crie os diretórios ausentes manualmente",
+    "Use a versão corrigida do script que trata erros automaticamente"
+  ]
+}
