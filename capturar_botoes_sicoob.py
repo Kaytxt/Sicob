@@ -1,527 +1,401 @@
-import tkinter as tk
-from tkinter import messagebox, simpledialog
 import pyautogui
-import os
 import time
+import os
+import datetime
+import cv2
+import logging
 from pathlib import Path
-from PIL import Image, ImageTk
-import threading
+
+# --- Configurações de Logging ---
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('automacao_sicoob.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# --- Configurações Iniciais ---
+pyautogui.PAUSE = 1.0
+pyautogui.FAILSAFE = True
 
 # Caminhos do projeto
 BASE_FOLDER = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 IMAGENS_BOTOES_FOLDER = os.path.join(BASE_FOLDER, 'img_automacao', 'botoes')
+IMAGENS_CONTAS_FOLDER = os.path.join(IMAGENS_BOTOES_FOLDER, 'contas')
+IMAGENS_DIAS_FOLDER = os.path.join(BASE_FOLDER, 'img_automacao', 'dias')
+DOWNLOAD_FOLDER = os.path.join(BASE_FOLDER, 'extratos_baixados')
 
-# Lista de botões necessários
-BOTOES_NECESSARIOS = [
+# Garante que as pastas existem
+if not os.path.exists(DOWNLOAD_FOLDER):
+    os.makedirs(DOWNLOAD_FOLDER)
+
+# Lista das contas a serem processadas (CORRIGIDA)
+CONTAS = [
     {
-        "nome": "extrato.jpg",
-        "descricao": "Botão 'Extrato' na página da conta",
-        "instrucoes": "Acesse uma conta e localize o botão/link 'Extrato' ou 'Consultar Extrato'"
+        "nome_empresa": "SERTANEZINA COMERCIO DE PEDRAS",
+        "nome_na_tela": "Conta 41930-3",
+        "nome_arquivo": "Sicoob_41930"
     },
     {
-        "nome": "periodo.jpg", 
-        "descricao": "Botão 'Período' na página de extrato",
-        "instrucoes": "Na página de extrato, localize onde escolher o período (pode ser um calendário ou dropdown)"
+        "nome_empresa": "F C F - COMERCIO DE MARMORE E GRANITOS LTDA",
+        "nome_na_tela": "Conta 41932-0",
+        "nome_arquivo": "Sicoob_41932"
     },
     {
-        "nome": "exportar-extrato.jpg",
-        "descricao": "Botão 'Exportar' ou 'Download' do extrato",
-        "instrucoes": "Botão para baixar/exportar o extrato (depois de selecionar o período)"
+        "nome_empresa": "BOUTIQUE DA PEDRA COMERCIO DE MARMORE E GRANITOS",
+        "nome_na_tela": "Conta 53276-2",
+        "nome_arquivo": "Sicoob_53276"
     },
     {
-        "nome": "radio-button-xls.jpg",
-        "descricao": "Opção XLS/Excel no formato de export",
-        "instrucoes": "Radio button ou checkbox para escolher formato XLS/Excel"
-    },
-    {
-        "nome": "exportar-extrato-final.jpg",
-        "descricao": "Botão final de confirmação do export",
-        "instrucoes": "Botão final 'Exportar', 'Download', 'Confirmar' para baixar o arquivo"
-    },
-    {
-        "nome": "trocar-conta.jpg",
-        "descricao": "Botão para voltar à lista de contas",
-        "instrucoes": "Botão 'Voltar', 'Trocar Conta', 'Sair' ou similar para voltar à tela inicial"
+        "nome_empresa": "MARMORARIA SERTANEZINA - COMERCIO DE PEDRAS LTDA",
+        "nome_na_tela": "Conta 81117-3",  # CORRIGIDO: era 81171-3
+        "nome_arquivo": "Sicoob_81117"  # CORRIGIDO: era Sicoob_81171
     }
 ]
 
-class CapturaBootoesGUI:
-    def __init__(self):
-        self.root = tk.Tk()
-        self.root.title("Capturar Botões - Sicoob")
-        self.root.geometry("900x700")
-        self.root.configure(bg='#2c3e50')
-        
-        # Garantir que a pasta existe
-        Path(IMAGENS_BOTOES_FOLDER).mkdir(parents=True, exist_ok=True)
-        
-        self.criar_interface()
-        
-    def criar_interface(self):
-        """Cria interface principal"""
-        # Título
-        titulo = tk.Label(
-            self.root,
-            text="Capturador de Botões - Sistema Sicoob",
-            font=("Arial", 18, "bold"),
-            bg='#2c3e50',
-            fg='#ecf0f1'
-        )
-        titulo.pack(pady=20)
-        
-        # Frame de instruções
-        frame_instrucoes = tk.LabelFrame(
-            self.root,
-            text="Instruções",
-            font=("Arial", 12, "bold"),
-            bg='#34495e',
-            fg='#ecf0f1'
-        )
-        frame_instrucoes.pack(fill="x", padx=20, pady=10)
-        
-        instrucoes = """
-1. Abra o sistema Sicoob no navegador
-2. Navegue até encontrar o botão que você quer capturar
-3. Clique em "Capturar Tela" aqui
-4. Selecione apenas a área do botão
-5. A imagem será salva automaticamente
-        """
-        
-        label_instrucoes = tk.Label(
-            frame_instrucoes,
-            text=instrucoes,
-            font=("Arial", 11),
-            bg='#34495e',
-            fg='#ecf0f1',
-            justify='left'
-        )
-        label_instrucoes.pack(padx=15, pady=15)
-        
-        # Frame de botões
-        frame_botoes_acao = tk.Frame(self.root, bg='#2c3e50')
-        frame_botoes_acao.pack(fill="x", padx=20, pady=10)
-        
-        btn_verificar = tk.Button(
-            frame_botoes_acao,
-            text="Verificar Botões Existentes",
-            command=self.verificar_botoes,
-            font=("Arial", 12),
-            bg='#3498db',
-            fg='white',
-            padx=20,
-            pady=8
-        )
-        btn_verificar.pack(side="left", padx=10)
-        
-        btn_capturar_todos = tk.Button(
-            frame_botoes_acao,
-            text="Capturar Todos Faltando",
-            command=self.capturar_todos_faltando,
-            font=("Arial", 12),
-            bg='#27ae60',
-            fg='white',
-            padx=20,
-            pady=8
-        )
-        btn_capturar_todos.pack(side="left", padx=10)
-        
-        # Lista de botões
-        frame_lista = tk.LabelFrame(
-            self.root,
-            text="Selecionar Botão Individual",
-            font=("Arial", 12, "bold"),
-            bg='#34495e',
-            fg='#ecf0f1'
-        )
-        frame_lista.pack(fill="both", expand=True, padx=20, pady=10)
-        
-        # Scrollable frame para botões
-        canvas_botoes = tk.Canvas(frame_lista, bg='#34495e')
-        scrollbar = tk.Scrollbar(frame_lista, orient="vertical", command=canvas_botoes.yview)
-        scrollable_frame = tk.Frame(canvas_botoes, bg='#34495e')
-        
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas_botoes.configure(scrollregion=canvas_botoes.bbox("all"))
-        )
-        
-        canvas_botoes.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas_botoes.configure(yscrollcommand=scrollbar.set)
-        
-        # Adicionar botões para cada imagem
-        for i, botao in enumerate(BOTOES_NECESSARIOS):
-            frame_botao = tk.Frame(scrollable_frame, bg='#34495e')
-            frame_botao.pack(fill="x", padx=10, pady=5)
-            
-            # Status do botão
-            caminho = os.path.join(IMAGENS_BOTOES_FOLDER, botao["nome"])
-            status_cor = '#27ae60' if os.path.exists(caminho) else '#e74c3c'
-            status_texto = 'Existe' if os.path.exists(caminho) else 'Faltando'
-            
-            status_label = tk.Label(
-                frame_botao,
-                text=status_texto,
-                bg=status_cor,
-                fg='white',
-                font=("Arial", 9, "bold"),
-                width=10
-            )
-            status_label.pack(side="left", padx=5)
-            
-            # Nome e descrição
-            info_frame = tk.Frame(frame_botao, bg='#34495e')
-            info_frame.pack(side="left", fill="x", expand=True, padx=10)
-            
-            nome_label = tk.Label(
-                info_frame,
-                text=botao["nome"],
-                font=("Arial", 11, "bold"),
-                bg='#34495e',
-                fg='#ecf0f1',
-                anchor="w"
-            )
-            nome_label.pack(fill="x")
-            
-            desc_label = tk.Label(
-                info_frame,
-                text=botao["descricao"],
-                font=("Arial", 9),
-                bg='#34495e',
-                fg='#bdc3c7',
-                anchor="w",
-                wraplength=400
-            )
-            desc_label.pack(fill="x")
-            
-            # Botão de capturar
-            btn_capturar = tk.Button(
-                frame_botao,
-                text="Capturar",
-                command=lambda b=botao: self.capturar_botao_individual(b),
-                font=("Arial", 10),
-                bg='#f39c12',
-                fg='white',
-                padx=15
-            )
-            btn_capturar.pack(side="right", padx=5)
-        
-        canvas_botoes.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
-        
-        # Área de status
-        self.status_text = tk.Text(
-            self.root,
-            height=8,
-            font=("Courier", 10),
-            bg='#2c3e50',
-            fg='#ecf0f1'
-        )
-        self.status_text.pack(fill="x", padx=20, pady=(0, 20))
-        
-        self.log("Sistema iniciado! Verifique os botões ou capture os que estão faltando.")
-        
-    def log(self, mensagem):
-        """Adiciona mensagem ao log"""
-        timestamp = time.strftime("%H:%M:%S")
-        self.status_text.insert(tk.END, f"[{timestamp}] {mensagem}\n")
-        self.status_text.see(tk.END)
-        self.root.update()
-        
-    def verificar_botoes(self):
-        """Verifica status de todos os botões"""
-        self.log("Verificando status dos botões...")
-        
-        existentes = 0
-        faltando = 0
-        
-        for botao in BOTOES_NECESSARIOS:
-            caminho = os.path.join(IMAGENS_BOTOES_FOLDER, botao["nome"])
-            
-            if os.path.exists(caminho):
-                try:
-                    with Image.open(caminho) as img:
-                        tamanho = os.path.getsize(caminho)
-                        self.log(f"OK: {botao['nome']} - {img.size[0]}x{img.size[1]} ({tamanho} bytes)")
-                        existentes += 1
-                except Exception as e:
-                    self.log(f"ERRO: {botao['nome']} - arquivo corrompido: {e}")
-                    faltando += 1
-            else:
-                self.log(f"FALTANDO: {botao['nome']}")
-                faltando += 1
-        
-        self.log(f"RESUMO: {existentes} existentes, {faltando} faltando")
-        
-        # Atualizar interface
-        self.criar_interface()
-        
-    def capturar_todos_faltando(self):
-        """Captura todos os botões que estão faltando"""
-        faltando = []
-        
-        for botao in BOTOES_NECESSARIOS:
-            caminho = os.path.join(IMAGENS_BOTOES_FOLDER, botao["nome"])
-            if not os.path.exists(caminho):
-                faltando.append(botao)
-        
-        if not faltando:
-            messagebox.showinfo("Sucesso", "Todos os botões já existem!")
-            return
-        
-        self.log(f"Iniciando captura de {len(faltando)} botões faltando...")
-        
-        for i, botao in enumerate(faltando):
-            resposta = messagebox.askyesno(
-                f"Capturar {i+1}/{len(faltando)}",
-                f"Capturar '{botao['nome']}'?\n\n{botao['descricao']}\n\n{botao['instrucoes']}"
-            )
-            
-            if resposta:
-                self.capturar_botao(botao)
-            else:
-                self.log(f"Pulado: {botao['nome']}")
-        
-        self.log("Processo de captura concluído!")
-        self.verificar_botoes()
-        
-    def capturar_botao_individual(self, botao_info):
-        """Captura um botão específico"""
-        resposta = messagebox.askyesno(
-            f"Capturar {botao_info['nome']}",
-            f"Instruções:\n{botao_info['instrucoes']}\n\nProsseguir com a captura?"
-        )
-        
-        if resposta:
-            self.capturar_botao(botao_info)
-            self.verificar_botoes()
-        
-    def capturar_botao(self, botao_info):
-        """Realiza a captura do botão"""
-        self.log(f"Iniciando captura: {botao_info['nome']}")
-        
-        # Minimizar janela temporariamente
-        self.root.iconify()
-        
-        # Aguardar posicionamento
-        time.sleep(2)
-        
-        try:
-            # Capturar tela
-            screenshot = pyautogui.screenshot()
-            
-            # Restaurar janela
-            self.root.deiconify()
-            
-            # Salvar temporariamente
-            temp_path = os.path.join(IMAGENS_BOTOES_FOLDER, "temp_captura.png")
-            screenshot.save(temp_path)
-            
-            self.log("Tela capturada! Abrindo seletor...")
-            
-            # Abrir seletor
-            self.abrir_seletor_area(temp_path, botao_info)
-            
-        except Exception as e:
-            self.log(f"Erro na captura: {e}")
-            messagebox.showerror("Erro", f"Erro ao capturar tela: {e}")
+# --- Funções Auxiliares ---
+def verificar_arquivo_imagem(caminho_arquivo):
+    """
+    Verifica se o arquivo de imagem existe e pode ser carregado
+    """
+    if not os.path.exists(caminho_arquivo):
+        logger.error(f"Arquivo não encontrado: {caminho_arquivo}")
+        return False
     
-    def abrir_seletor_area(self, screenshot_path, botao_info):
-        """Abre janela para selecionar área"""
-        janela_selecao = tk.Toplevel(self.root)
-        janela_selecao.title(f"Selecionar área - {botao_info['nome']}")
-        janela_selecao.state('zoomed')
-        
-        # Carregar imagem
-        img_original = Image.open(screenshot_path)
-        
-        # Redimensionar se necessário
-        largura_tela = janela_selecao.winfo_screenwidth()
-        altura_tela = janela_selecao.winfo_screenheight()
-        
-        fator_escala = min(
-            (largura_tela - 100) / img_original.width,
-            (altura_tela - 150) / img_original.height,
-            1.0
-        )
-        
-        if fator_escala < 1.0:
-            nova_largura = int(img_original.width * fator_escala)
-            nova_altura = int(img_original.height * fator_escala)
-            img_display = img_original.resize((nova_largura, nova_altura), Image.Resampling.LANCZOS)
-        else:
-            img_display = img_original
-            fator_escala = 1.0
-        
-        # Converter para PhotoImage
-        photo = ImageTk.PhotoImage(img_display)
-        
-        # Frame de instruções
-        frame_instrucoes = tk.Frame(janela_selecao, bg='#34495e', height=80)
-        frame_instrucoes.pack(fill="x")
-        frame_instrucoes.pack_propagate(False)
-        
-        label_titulo = tk.Label(
-            frame_instrucoes,
-            text=f"Capturando: {botao_info['nome']}",
-            font=("Arial", 14, "bold"),
-            bg='#34495e',
-            fg='white'
-        )
-        label_titulo.pack(pady=(10, 5))
-        
-        label_instrucoes = tk.Label(
-            frame_instrucoes,
-            text=f"Clique e arraste para selecionar apenas: {botao_info['descricao']} | ESC=Cancelar",
-            font=("Arial", 10),
-            bg='#34495e',
-            fg='#ecf0f1'
-        )
-        label_instrucoes.pack()
-        
-        # Canvas para a imagem
-        canvas = tk.Canvas(
-            janela_selecao,
-            width=img_display.width,
-            height=img_display.height,
-            bg='white'
-        )
-        canvas.pack(expand=True, fill='both')
-        
-        # Mostrar imagem
-        canvas.create_image(0, 0, anchor=tk.NW, image=photo)
-        canvas.image = photo
-        
-        # Variáveis de seleção
-        start_x = start_y = end_x = end_y = 0
-        rect_id = None
-        
-        def on_mouse_down(event):
-            nonlocal start_x, start_y, rect_id
-            start_x, start_y = event.x, event.y
-            if rect_id:
-                canvas.delete(rect_id)
-                
-        def on_mouse_drag(event):
-            nonlocal rect_id, end_x, end_y
-            end_x, end_y = event.x, event.y
-            if rect_id:
-                canvas.delete(rect_id)
-            rect_id = canvas.create_rectangle(
-                start_x, start_y, end_x, end_y,
-                outline='red', width=3
-            )
-            
-        def on_mouse_up(event):
-            nonlocal end_x, end_y
-            end_x, end_y = event.x, event.y
-            
-        def salvar_selecao():
-            nonlocal start_x, start_y, end_x, end_y
-            
-            if abs(end_x - start_x) < 10 or abs(end_y - start_y) < 10:
-                messagebox.showwarning("Aviso", "Selecione uma área maior!")
-                return
-                
-            try:
-                # Ajustar coordenadas
-                x1 = int(min(start_x, end_x) / fator_escala)
-                y1 = int(min(start_y, end_y) / fator_escala)
-                x2 = int(max(start_x, end_x) / fator_escala)
-                y2 = int(max(start_y, end_y) / fator_escala)
-                
-                # Extrair área
-                area_selecionada = img_original.crop((x1, y1, x2, y2))
-                
-                # Salvar
-                caminho_final = os.path.join(IMAGENS_BOTOES_FOLDER, botao_info["nome"])
-                area_selecionada.save(caminho_final, "JPEG" if botao_info["nome"].endswith('.jpg') else "PNG")
-                
-                janela_selecao.destroy()
-                
-                # Log sucesso
-                tamanho = os.path.getsize(caminho_final)
-                self.log(f"SUCESSO: {botao_info['nome']} salvo - {area_selecionada.size[0]}x{area_selecionada.size[1]} ({tamanho} bytes)")
-                
-                messagebox.showinfo(
-                    "Sucesso!",
-                    f"Botão capturado!\n\n{botao_info['nome']}\n{area_selecionada.size[0]}x{area_selecionada.size[1]} pixels"
-                )
-                
-            except Exception as e:
-                self.log(f"Erro ao salvar: {e}")
-                messagebox.showerror("Erro", f"Erro ao salvar: {e}")
-                
-        def cancelar():
-            janela_selecao.destroy()
-            self.log(f"Cancelado: {botao_info['nome']}")
-        
-        # Eventos
-        canvas.bind("<Button-1>", on_mouse_down)
-        canvas.bind("<B1-Motion>", on_mouse_drag)
-        canvas.bind("<ButtonRelease-1>", on_mouse_up)
-        
-        janela_selecao.bind("<Escape>", lambda e: cancelar())
-        janela_selecao.bind("<Return>", lambda e: salvar_selecao())
-        
-        # Botões de ação
-        frame_botoes = tk.Frame(janela_selecao, bg='#34495e', height=60)
-        frame_botoes.pack(fill="x")
-        frame_botoes.pack_propagate(False)
-        
-        btn_salvar = tk.Button(
-            frame_botoes,
-            text="Salvar Seleção (Enter)",
-            command=salvar_selecao,
-            font=("Arial", 12),
-            bg='#27ae60',
-            fg='white',
-            padx=30
-        )
-        btn_salvar.pack(side="left", padx=20, pady=15)
-        
-        btn_cancelar = tk.Button(
-            frame_botoes,
-            text="Cancelar (Esc)",
-            command=cancelar,
-            font=("Arial", 12),
-            bg='#e74c3c',
-            fg='white',
-            padx=30
-        )
-        btn_cancelar.pack(side="left", padx=10, pady=15)
-        
-        janela_selecao.focus_set()
-        janela_selecao.grab_set()
-        
-        # Limpeza
-        def on_closing():
-            if os.path.exists(screenshot_path):
-                try:
-                    os.remove(screenshot_path)
-                except:
-                    pass
-            janela_selecao.destroy()
-            
-        janela_selecao.protocol("WM_DELETE_WINDOW", on_closing)
-    
-    def executar(self):
-        """Executa a aplicação"""
-        try:
-            self.root.mainloop()
-        except Exception as e:
-            print(f"Erro: {e}")
-
-def main():
-    """Função principal"""
-    print("Capturador de Botões Sicoob - Interface Gráfica")
-    print("Abrindo janela...")
+    if not os.access(caminho_arquivo, os.R_OK):
+        logger.error(f"Sem permissão para ler arquivo: {caminho_arquivo}")
+        return False
     
     try:
-        app = CapturaBootoesGUI()
-        app.executar()
+        img = cv2.imread(caminho_arquivo)
+        if img is None:
+            logger.error(f"OpenCV não conseguiu carregar a imagem: {caminho_arquivo}")
+            return False
+        return True
     except Exception as e:
-        print(f"Erro crítico: {e}")
-        input("Pressione ENTER para sair...")
+        logger.error(f"Erro ao carregar imagem: {e}")
+        return False
 
+def encontrar_imagem_conta(nome_conta_na_tela):
+    """
+    Procura pela imagem da conta, testando diferentes variações de nome
+    """
+    # Nome padrão baseado no código original
+    image_name_principal = nome_conta_na_tela.replace("Conta ", "conta_").lower() + ".png"
+    caminho_principal = os.path.join(IMAGENS_CONTAS_FOLDER, image_name_principal)
+    
+    if verificar_arquivo_imagem(caminho_principal):
+        logger.info(f"Imagem principal encontrada: {image_name_principal}")
+        return caminho_principal
+    
+    # Variações de nome para tentar
+    numero_conta = nome_conta_na_tela.replace("Conta ", "")
+    variações = [
+        f"conta_{numero_conta}.png",
+        f"conta_{numero_conta.replace('-', '_')}.png",
+        f"conta_{numero_conta.replace('_', '-')}.png",
+        f"{numero_conta}.png",
+        f"Conta_{numero_conta}.png",
+        f"conta{numero_conta}.png",
+        f"conta{numero_conta.replace('-', '')}.png"
+    ]
+    
+    logger.warning(f"Imagem principal não encontrada: {image_name_principal}")
+    logger.info("Testando variações de nome...")
+    
+    for variacao in variações:
+        caminho_variacao = os.path.join(IMAGENS_CONTAS_FOLDER, variacao)
+        if verificar_arquivo_imagem(caminho_variacao):
+            logger.info(f"Imagem alternativa encontrada: {variacao}")
+            return caminho_variacao
+    
+    # Se não encontrou nenhuma variação, lista arquivos disponíveis
+    logger.error(f"Nenhuma imagem encontrada para a conta: {nome_conta_na_tela}")
+    
+    if os.path.exists(IMAGENS_CONTAS_FOLDER):
+        logger.info("Arquivos PNG disponíveis no diretório de contas:")
+        for arquivo in os.listdir(IMAGENS_CONTAS_FOLDER):
+            if arquivo.endswith('.png'):
+                logger.info(f"  - {arquivo}")
+    
+    return None
+
+def clicar_imagem(image_name, confidence=0.7, tries=3, delay=1, pasta_especifica=None):
+    """
+    Tenta encontrar e clicar em uma imagem na tela com melhor tratamento de erro.
+    """
+    # Define as pastas para procurar
+    if pasta_especifica:
+        caminhos_possíveis = [os.path.join(pasta_especifica, image_name)]
+    else:
+        caminhos_possíveis = [
+            os.path.join(IMAGENS_BOTOES_FOLDER, image_name),
+            os.path.join(IMAGENS_DIAS_FOLDER, image_name),
+            os.path.join(IMAGENS_CONTAS_FOLDER, image_name)
+        ]
+    
+    # Procura o arquivo de imagem
+    image_path = None
+    for caminho in caminhos_possíveis:
+        if verificar_arquivo_imagem(caminho):
+            image_path = caminho
+            break
+    
+    if not image_path:
+        logger.error(f"Arquivo de imagem '{image_name}' não encontrado em nenhum diretório")
+        return False
+
+    logger.info(f"Tentando clicar em '{image_name}' (caminho: {image_path})")
+    
+    for i in range(tries):
+        try:
+            button_location = pyautogui.locateCenterOnScreen(image_path, confidence=confidence)
+            if button_location:
+                pyautogui.click(button_location)
+                time.sleep(delay)
+                logger.info(f"Sucesso: Clicou em '{image_name}' na posição {button_location}")
+                return True
+        except pyautogui.ImageNotFoundException:
+            logger.warning(f"Tentativa {i+1}/{tries}: Imagem '{image_name}' não encontrada na tela")
+            if i == tries - 1:  # Na última tentativa, captura screenshot para debug
+                screenshot_path = f"debug_erro_{image_name}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+                pyautogui.screenshot(screenshot_path)
+                logger.info(f"Screenshot de debug salvo: {screenshot_path}")
+        except Exception as e:
+            logger.error(f"Erro inesperado ao clicar em '{image_name}': {e}")
+        
+        if i < tries - 1:  # Não esperar na última tentativa
+            time.sleep(delay)
+    
+    logger.error(f"Falha: Não foi possível encontrar e clicar em '{image_name}' após {tries} tentativas")
+    return False
+    
+def selecionar_datas_no_calendario():
+    """
+    Seleciona o primeiro dia do mês e a data atual no calendário.
+    """
+    logger.info("Selecionando o período no calendário...")
+    
+    # Clica no dia 1 do mês
+    if not clicar_imagem('1.jpg', confidence=0.9, tries=5, delay=2):
+        logger.error("Falha ao selecionar o dia 1")
+        return False
+    
+    # Clica no dia atual do mês
+    dia_atual = datetime.date.today().day
+    dia_atual_str = f"{dia_atual}.jpg"
+    
+    if not clicar_imagem(dia_atual_str, confidence=0.9, tries=5, delay=2):
+        logger.error(f"Falha ao selecionar o dia atual ({dia_atual_str})")
+        
+        # Tenta variações do nome do dia
+        variações_dia = [
+            f"{dia_atual:02d}.jpg",  # Com zero à esquerda
+            f"dia_{dia_atual}.jpg",
+            f"dia{dia_atual}.jpg",
+        ]
+        
+        logger.info("Tentando variações do nome do arquivo do dia...")
+        encontrou_dia = False
+        for variacao in variações_dia:
+            if clicar_imagem(variacao, confidence=0.9, tries=2, delay=1):
+                logger.info(f"Dia selecionado com nome alternativo: {variacao}")
+                encontrou_dia = True
+                break
+        
+        if not encontrou_dia:
+            logger.error("Não foi possível selecionar o dia atual com nenhuma variação")
+            return False
+
+    logger.info("Período de extrato selecionado com sucesso")
+    return True
+
+def baixar_extrato_sicoob(nome_conta_na_tela):
+    """
+    Executa a sequência de ações para baixar o extrato de uma única conta.
+    """
+    logger.info(f"Iniciando processo para a conta: {nome_conta_na_tela}")
+    
+    # Encontra a imagem da conta
+    caminho_imagem_conta = encontrar_imagem_conta(nome_conta_na_tela)
+    if not caminho_imagem_conta:
+        logger.error(f"Não foi possível encontrar imagem para a conta: {nome_conta_na_tela}")
+        return False
+
+    # Encontra o texto da conta e clica no botão "Acessar conta" ao lado
+    try:
+        logger.info(f"Procurando pela conta na tela: {nome_conta_na_tela}")
+        conta_text_location = pyautogui.locateCenterOnScreen(caminho_imagem_conta, confidence=0.7)
+
+        if conta_text_location:
+            # Clica no botão "Acessar conta" (assumindo que está à direita do texto)
+            acessar_conta_x = conta_text_location.x + 400
+            pyautogui.click(x=acessar_conta_x, y=conta_text_location.y)
+            logger.info(f"Clicou no botão 'Acessar conta' para {nome_conta_na_tela}")
+            time.sleep(5)
+        else:
+            logger.error(f"Texto da conta '{nome_conta_na_tela}' não encontrado na tela")
+            # Tenta com confiança menor
+            logger.info("Tentando com confiança menor (0.6)...")
+            conta_text_location = pyautogui.locateCenterOnScreen(caminho_imagem_conta, confidence=0.6)
+            
+            if conta_text_location:
+                acessar_conta_x = conta_text_location.x + 400
+                pyautogui.click(x=acessar_conta_x, y=conta_text_location.y)
+                logger.info(f"Clicou no botão 'Acessar conta' para {nome_conta_na_tela} (confiança baixa)")
+                time.sleep(5)
+            else:
+                logger.error(f"Não foi possível encontrar a conta '{nome_conta_na_tela}' mesmo com confiança baixa")
+                return False
+                
+    except Exception as e:
+        logger.error(f"Erro ao procurar pela conta '{nome_conta_na_tela}': {e}")
+        return False
+
+    # Sequência de cliques para baixar o extrato
+    passos = [
+        ('extrato.jpg', 'botão Extrato'),
+        ('periodo.jpg', 'botão Período'),
+    ]
+    
+    for imagem, descricao in passos:
+        if not clicar_imagem(imagem, confidence=0.9):
+            logger.error(f"Falha ao clicar em {descricao}")
+            return False
+
+    # Selecionar datas no calendário
+    if not selecionar_datas_no_calendario():
+        logger.error("Falha ao selecionar datas no calendário")
+        return False
+
+    # Rolar a página e continuar
+    logger.info("Rolando a página...")
+    pyautogui.scroll(-500)
+    time.sleep(2)
+    
+    passos_finais = [
+        ('exportar-extrato.jpg', 'botão Exportar Extrato'),
+        ('radio-button-xls.jpg', 'radio button XLS'),
+        ('exportar-extrato-final.jpg', 'botão final Exportar')
+    ]
+    
+    for imagem, descricao in passos_finais:
+        if not clicar_imagem(imagem, confidence=0.9):
+            logger.error(f"Falha ao clicar em {descricao}")
+            return False
+    
+    logger.info("Aguardando download...")
+    time.sleep(5)
+
+    logger.info("Download concluído. Voltando para a tela de seleção de contas")
+    if not clicar_imagem('trocar-conta.jpg', confidence=0.9, tries=5, delay=3):
+        logger.warning("Falha ao voltar para a tela inicial")
+        # Não retorna False aqui pois o download pode ter sido bem-sucedido
+
+    logger.info(f"Processo para a conta {nome_conta_na_tela} finalizado com sucesso")
+    return True
+
+def verificar_prerequisitos():
+    """
+    Verifica se todos os arquivos necessários existem antes de iniciar
+    """
+    logger.info("Verificando pré-requisitos...")
+    
+    # Verificar se as pastas existem
+    pastas_necessarias = [
+        IMAGENS_BOTOES_FOLDER,
+        IMAGENS_CONTAS_FOLDER,
+        IMAGENS_DIAS_FOLDER
+    ]
+    
+    for pasta in pastas_necessarias:
+        if not os.path.exists(pasta):
+            logger.error(f"Pasta necessária não encontrada: {pasta}")
+            return False
+    
+    # Verificar se as imagens das contas existem
+    contas_sem_imagem = []
+    for conta in CONTAS:
+        if not encontrar_imagem_conta(conta["nome_na_tela"]):
+            contas_sem_imagem.append(conta["nome_na_tela"])
+    
+    if contas_sem_imagem:
+        logger.error("Contas sem imagem de referência:")
+        for conta in contas_sem_imagem:
+            logger.error(f"  - {conta}")
+        logger.error("Execute o script de criação de imagens antes de continuar")
+        return False
+    
+    logger.info("Todos os pré-requisitos foram atendidos")
+    return True
+
+# --- Execução Principal do Script ---
 if __name__ == "__main__":
-    main()
+    logger.info("="*60)
+    logger.info("INICIANDO AUTOMAÇÃO DE DOWNLOAD DE EXTRATOS SICOOB")
+    logger.info("="*60)
+    
+    # Verificar pré-requisitos
+    if not verificar_prerequisitos():
+        logger.error("Pré-requisitos não atendidos. Encerrando...")
+        input("Pressione ENTER para sair...")
+        exit(1)
+    
+    logger.info("Posicione a tela com as contas visível")
+    logger.info("A automação começará em 10 segundos...")
+    logger.info("Pressione Ctrl+C para cancelar")
+    
+    try:
+        for i in range(10, 0, -1):
+            print(f"Iniciando em {i} segundos...", end='\r')
+            time.sleep(1)
+        print(" " * 30, end='\r')  # Limpa a linha
+        
+        sucessos = 0
+        falhas = 0
+        
+        for i, conta in enumerate(CONTAS, 1):
+            logger.info(f"Processando conta {i}/{len(CONTAS)}: {conta['nome_na_tela']}")
+            
+            try:
+                if baixar_extrato_sicoob(conta["nome_na_tela"]):
+                    sucessos += 1
+                    logger.info(f"✅ Conta {conta['nome_na_tela']} processada com sucesso")
+                else:
+                    falhas += 1
+                    logger.error(f"❌ Falha ao processar conta {conta['nome_na_tela']}")
+                    
+                # Pequena pausa entre contas
+                if i < len(CONTAS):
+                    logger.info("Aguardando antes da próxima conta...")
+                    time.sleep(3)
+                    
+            except KeyboardInterrupt:
+                logger.warning("Automação interrompida pelo usuário")
+                break
+            except Exception as e:
+                falhas += 1
+                logger.error(f"Erro inesperado na conta {conta['nome_na_tela']}: {e}")
+
+        logger.info("="*60)
+        logger.info("RESUMO DA AUTOMAÇÃO")
+        logger.info("="*60)
+        logger.info(f"Total de contas: {len(CONTAS)}")
+        logger.info(f"Sucessos: {sucessos}")
+        logger.info(f"Falhas: {falhas}")
+        
+        if falhas == 0:
+            logger.info("🎉 Todos os extratos foram baixados com sucesso!")
+        else:
+            logger.warning(f"⚠️  {falhas} conta(s) apresentaram problemas")
+            
+    except KeyboardInterrupt:
+        logger.warning("Automação cancelada pelo usuário")
+    except Exception as e:
+        logger.error(f"Erro crítico na automação: {e}")
+    
+    logger.info("Automação finalizada")
+    input("Pressione ENTER para sair...")
